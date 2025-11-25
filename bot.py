@@ -14,7 +14,7 @@ dp = Dispatcher()
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
-    await message.answer("Привет! Я Lifestyle Travel Assistant")
+    await message.answer("Привет! Я Lifestyle Travel Assistant.")
 
 @dp.message()
 async def echo(message: Message):
