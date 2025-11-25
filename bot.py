@@ -16,6 +16,10 @@ dp = Dispatcher()
 async def cmd_start(message: Message):
     await message.answer("Привет! Я Lifestyle Travel Assistant.")
 
+@dp.message(Command("help"))
+async def cmd_start(message: Message):
+    await message.answer("Команда start.")
+
 @dp.message()
 async def echo(message: Message):
     await message.answer(message.text)
