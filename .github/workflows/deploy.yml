@@ -3,7 +3,7 @@ name: Deploy Bot
 on:
   push:
     branches:
-      - main   # Автодеплой при пуше в main
+      - master
 
 jobs:
   deploy:
