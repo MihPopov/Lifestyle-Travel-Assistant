@@ -17,8 +17,8 @@ TOKEN = os.getenv("BOT_TOKEN")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
-threads = {}
-server_url = "http://localhost:8001"
+# threads = {}
+# server_url = "http://localhost:8001/v1"
 
 @tool
 def add_function(a: int, b: int) -> int:
@@ -35,31 +35,31 @@ model = ChatOpenAI(base_url="http://localhost:8000/v1", model="Qwen/Qwen2.5-7B-I
 agent = create_agent(model=model, tools=tools)
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
-    threads[message.from_user.id] = str(uuid.uuid4())
+    # threads[message.from_user.id] = str(uuid.uuid4())
     await message.answer("Привет! Я Lifestyle Travel Assistant.")
 
 @dp.message(Command("clear"))
 async def cmd_start(message: Message):
-    threads[message.from_user.id] = str(uuid.uuid4())
+    # threads[message.from_user.id] = str(uuid.uuid4())
     await message.answer("История очищена")
 
 @dp.message()
 async def echo(message: Message):
-    response = requests.post(
-        f"{server_url}/chat",
-        json={
-            "message": message.text,
-            "thread_id": threads.get(message.from_user.id)
-        },
-        timeout=60.0
-    )
-    # result = agent.invoke(
-    #     {"messages": [{"role": "user", "content": message.text}]},
-    #     context={"user_role": "expert"}
+    # response = requests.post(
+    #     f"{server_url}/chat",
+    #     json={
+    #         "message": message.text,
+    #         "thread_id": threads.get(message.from_user.id)
+    #     },
+    #     timeout=60.0
     # )
-    # answer = result["messages"][-1].content
-    data = response.json()["response"]
-    await message.answer(data)
+    # data = response.json()["response"]
+    result = agent.invoke(
+        {"messages": [{"role": "user", "content": message.text}]},
+        context={"user_role": "expert"}
+    )
+    answer = result["messages"][-1].content
+    await message.answer(answer)
 
 async def main():
     await dp.start_polling(bot)
