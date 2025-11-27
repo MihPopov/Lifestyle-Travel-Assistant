@@ -7,18 +7,17 @@ from aiogram.fsm.state import StatesGroup, State
 from dotenv import load_dotenv
 import os
 import re
-
-from langchain.agents import create_agent
-from langchain_openai import ChatOpenAI
-from langchain.tools import tool
+import requests
+import uuid
 
 load_dotenv()
 
 TOKEN = os.getenv("BOT_TOKEN")
-
+server_url = os.getenv("SERVER_URL", "http://localhost:8001")
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 context = {}
+threads = {}
 
 INTERESTS = ["Природа", "Музеи", "Гастрономия", "Шопинг", "Активности и спорт", "Мероприятия/концерты"]
 TRAVELERS_OPTIONS = {"Один", "Пара", "Семья с детьми", "Друзья"}
@@ -107,24 +106,10 @@ def markdown_to_telegram_html(text: str) -> str:
     text = re.sub(r'\n\s*\n', '\n\n', text)
 
     return text.strip()
-
-# @tool
-# def add_function(a: int, b: int) -> int:
-#     """Складывает два числа."""
-#     return a + b
-#
-# @tool
-# def mult_function(a: int, b: int) -> int:
-#     """Перемножает два числа."""
-#     return a * b
-
-# tools = [add_function, mult_function]
-model = ChatOpenAI(base_url=os.getenv("SERVER_URL"), model="Qwen/Qwen2.5-7B-Instruct", api_key="dummy")
-agent = create_agent(model=model)
 @dp.message(Command("start"))
 async def start(message: Message):
     context[message.chat.id] = {}
-    # threads[message.from_user.id] = str(uuid.uuid4())
+    threads[message.from_user.id] = str(uuid.uuid4())
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Да, я готов(а) ответить на вопросы", callback_data="yes")],
@@ -279,28 +264,22 @@ async def block_in_waiting(callback: types.CallbackQuery):
 
 @dp.message(Command("clear"))
 async def cmd_clear(message: Message):
-    # threads[message.from_user.id] = str(uuid.uuid4())
     context[message.chat.id] = {}
+    threads[message.from_user.id] = str(uuid.uuid4())
     await message.answer("История очищена")
 
 @dp.message(RequestForm.waiting_for_request)
 async def echo(message: Message):
-    # response = requests.post(
-    #     f"{server_url}/chat",
-    #     json={
-    #         "message": message.text,
-    #         "thread_id": threads.get(message.from_user.id)
-    #     },
-    #     timeout=60.0
-    # )
-    # data = response.json()["response"]
-    result = agent.invoke(
-        {"messages": [{"role": "user", "content": message.text}]},
-        context={"user_role": "expert"}
+    response = requests.post(
+        f"{server_url}/chat",
+        json={
+            "message": message.text,
+            "thread_id": threads.get(message.from_user.id)
+        },
+        timeout=60.0
     )
-    answer = result["messages"][-1].content
-    print(context)
-    await message.answer(answer, parse_mode="Markdown")
+    data = response.json()["response"]
+    await message.answer(markdown_to_telegram_html(data), parse_mode="HTML")
 
 async def main():
     await dp.start_polling(bot)
