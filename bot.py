@@ -40,16 +40,16 @@ class TripContext(StatesGroup):
 class RequestForm(StatesGroup):
     waiting_for_request = State()
 
-def interests_keyboard(selected: set[str]):
+def interests_keyboard(selected: list[str]):
     buttons = []
     for t in INTERESTS:
-        mark = "✔ " if t in selected else ""
+        mark = "✅ " if t in selected else ""
         buttons.append([InlineKeyboardButton(
             text=f"{mark}{t}",
             callback_data=t
         )])
     buttons.append([
-        InlineKeyboardButton(text="Готово", callback_data="done")
+        InlineKeyboardButton(text="💯 Готово", callback_data="done")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -204,7 +204,7 @@ async def process_interests(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     data = await state.get_data()
-    selected: set = set(data.get("selected_interests", []))
+    selected: list = data.get("selected_interests", [])
     value = callback.data
     if value == "done":
         await state.update_data(selected_interests=selected)
@@ -222,7 +222,7 @@ async def process_interests(callback: types.CallbackQuery, state: FSMContext):
     if value in selected:
         selected.remove(value)
     else:
-        selected.add(value)
+        selected.append(value)
     await state.update_data(selected_interests=selected)
     await callback.message.edit_reply_markup(
         reply_markup=interests_keyboard(selected)
@@ -259,7 +259,7 @@ async def budget_question(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "Отлично! Вы ответили на все вопросы. Теперь я могу составить более "
         "персонализированные рекомендации для вас. Вы в любой момент можете пройти опрос "
-        "заново или сбросить его результаты командой \clear.")
+        "заново или сбросить его результаты командой /clear.")
     await state.set_state(RequestForm.waiting_for_request.state)
     await callback.answer()
 
