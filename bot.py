@@ -1,9 +1,11 @@
 import asyncio
 from aiogram import Bot, Dispatcher, F, types
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 from aiogram.fsm.state import StatesGroup, State
+from aiogram.utils.chat_action import ChatActionSender
+from aiogram.utils.keyboard import ReplyKeyboardMarkup, KeyboardButton
 from dotenv import load_dotenv
 import os
 import re
@@ -21,24 +23,19 @@ threads = {}
 server_url = os.getenv("SERVER_URL", "http://localhost:8001/v1")
 
 INTERESTS = ["Природа", "Музеи", "Гастрономия", "Шопинг", "Активности и спорт", "Мероприятия/концерты"]
-TRAVELERS_OPTIONS = {"Один", "Пара", "Семья с детьми", "Друзья"}
-AGE_KIDS_OPTIONS = {"0-4 года", "5-10 лет", "11-17 лет"}
-AGE_ADULT_OPTIONS = {"18-25 лет", "26-35 лет", "36-47 лет", "48-59 лет", "60+ лет"}
-PLAN_STYLE_OPTIONS = {"Спокойный", "Активный"}
-BUDGET_OPTIONS = {
-    "Более 10 тыс. руб", "2-10 тыс. руб", "Не более 2 тыс. руб", "Без затрат", "Не имеет значения"
-}
+TRAVELERS_OPTIONS = {"Да", "Нет"}
+BUDGET_OPTIONS = {"Более 10 тыс. руб", "2-10 тыс. руб", "Не более 2 тыс. руб", "Без затрат", "Не имеет значения"}
+
 
 class TripContext(StatesGroup):
     travelers = State()
-    age = State()
     interests = State()
-    plan_style = State()
     budget = State()
 
 
 class RequestForm(StatesGroup):
     waiting_for_request = State()
+
 
 def interests_keyboard(selected: list[str]):
     buttons = []
@@ -52,6 +49,7 @@ def interests_keyboard(selected: list[str]):
         InlineKeyboardButton(text="💯 Готово", callback_data="done")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 def markdown_to_telegram_html(text: str) -> str:
     """
@@ -108,6 +106,7 @@ def markdown_to_telegram_html(text: str) -> str:
 
     return text.strip()
 
+
 @dp.message(Command("start"))
 async def start(message: Message):
     context[message.chat.id] = {}
@@ -118,88 +117,78 @@ async def start(message: Message):
             [InlineKeyboardButton(text="Нет, давай сразу к делу", callback_data="no")]
         ]
     )
-    await message.answer(
-        "Привет! Я умею искать мероприятия, заведения и узнавать погоду. Например, "
-        "я могу найти концерт в Москве, кафе в Адлере или рассказать о погоде в Сочи. "
-        "Но перед этим хочу задать пару вопросов, чтобы составлять наиболее качественные рекомендации. "
-        "Вы не будете против?",
-        reply_markup=keyboard
-    )
+    async with ChatActionSender.typing(chat_id=message.chat.id, bot=bot):
+        await message.answer(
+            "Привет! Я умею искать мероприятия, заведения и узнавать погоду. Например, "
+            "я могу найти концерт в Москве, кафе в Адлере или рассказать о погоде в Сочи. "
+            "Но перед этим хочу задать пару вопросов, чтобы составлять наиболее качественные рекомендации. "
+            "Вы не будете против?",
+            reply_markup=keyboard
+        )
+
 
 @dp.callback_query(F.data == "no")
 async def just_answer(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.answer("Хорошо! Напишите интересующий вас вопрос.")
+    async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
+        await callback.message.answer("Хорошо! Напишите интересующий вас вопрос.")
     await state.set_state(RequestForm.waiting_for_request.state)
     await callback.answer()
+
 
 @dp.callback_query(F.data == "yes")
 async def start_questions(callback: types.CallbackQuery, state: FSMContext):
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Один", callback_data="Один")],
-            [InlineKeyboardButton(text="Пара", callback_data="Пара")],
-            [InlineKeyboardButton(text="Семья с детьми", callback_data="Семья с детьми")],
-            [InlineKeyboardButton(text="Друзья", callback_data="Друзья")]
+            [InlineKeyboardButton(text="Да", callback_data="Да")],
+            [InlineKeyboardButton(text="Нет", callback_data="Нет")],
+            [InlineKeyboardButton(text="⛔ Завершить опрос досрочно", callback_data="stop")],
         ]
     )
-    await callback.message.answer("Кто путешествует?", reply_markup=keyboard)
+    async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
+        msg = await callback.message.answer("*[1 / 3]* Есть ли дети в вашей компании?", reply_markup=keyboard,
+                                   parse_mode="Markdown")
     await state.set_state(TripContext.travelers.state)
+    await state.update_data(current_message_id=msg.message_id)
     await callback.answer()
 
+
 @dp.callback_query(TripContext.travelers)
-async def age_question(callback: types.CallbackQuery, state: FSMContext):
+async def interests_question(callback: types.CallbackQuery, state: FSMContext):
+    if callback.data == "stop":
+        async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
+            await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже.")
+        await callback.answer()
+        await state.set_state(RequestForm.waiting_for_request.state)
+        return
     if callback.data not in TRAVELERS_OPTIONS:
         await callback.answer()
         return
-    await state.update_data(travelers=callback.data)
-    context[callback.message.chat.id]["travelers"] = callback.data
-    if callback.data == "Семья с детьми":
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="0-4 года", callback_data="0-4 года")],
-                [InlineKeyboardButton(text="5-10 лет", callback_data="5-10 лет")],
-                [InlineKeyboardButton(text="11-17 лет", callback_data="11-17 лет")]
-            ]
-        )
-        await callback.message.answer("Какого возраста дети?", reply_markup=keyboard)
-    elif callback.data in ["Один", "Пара", "Друзья"]:
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="18-25 лет", callback_data="18-25 лет")],
-                [InlineKeyboardButton(text="26-35 лет", callback_data="26-35 лет")],
-                [InlineKeyboardButton(text="36-47 лет", callback_data="36-47 лет")],
-                [InlineKeyboardButton(text="48-59 лет", callback_data="48-59 лет")],
-                [InlineKeyboardButton(text="60+ лет", callback_data="60+ лет")]
-            ]
-        )
-        await callback.message.answer("Каков средний возраст компании?", reply_markup=keyboard)
-    await state.set_state(TripContext.age.state)
-    await callback.answer()
-
-@dp.callback_query(TripContext.age)
-async def interests_question(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    if data["travelers"] == "Семья с детьми":
-        allowed = AGE_KIDS_OPTIONS
-    else:
-        allowed = AGE_ADULT_OPTIONS
-    if callback.data not in allowed:
-        await callback.answer()
-        return
-    await state.update_data(age=callback.data)
     context[callback.message.chat.id]["age"] = callback.data
     selected = []
     await state.update_data(selected_interests=selected)
-    await callback.message.answer(
-        "Что вам ближе? Можно выбрать несколько или не выбирать ничего:",
-        reply_markup=interests_keyboard(selected)
-    )
+    data = await state.get_data()
+    msg_id = data.get("current_message_id")
+    async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
+        await callback.message.bot.edit_message_text(
+            chat_id=callback.message.chat.id,
+            message_id=msg_id,
+            text="*[2 / 3]* Что вам ближе? Можно выбрать несколько или не выбирать ничего:",
+            parse_mode="Markdown",
+            reply_markup=interests_keyboard(selected)
+        )
     await state.set_state(TripContext.interests)
     await callback.answer()
+
 
 @dp.callback_query(TripContext.interests)
 async def process_interests(callback: types.CallbackQuery, state: FSMContext):
     allowed = set(INTERESTS) | {"done"}
+    if callback.data == "stop":
+        async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
+            await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже.")
+        await callback.answer()
+        await state.set_state(RequestForm.waiting_for_request.state)
+        return
     if callback.data not in allowed:
         await callback.answer()
         return
@@ -211,12 +200,23 @@ async def process_interests(callback: types.CallbackQuery, state: FSMContext):
         context[callback.message.chat.id]["interests"] = selected
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text="Спокойный", callback_data="Спокойный")],
-                [InlineKeyboardButton(text="Активный", callback_data="Активный")]
+                [InlineKeyboardButton(text="Более 10 тыс. руб", callback_data="Более 10 тыс. руб")],
+                [InlineKeyboardButton(text="2-10 тыс. руб", callback_data="2-10 тыс. руб")],
+                [InlineKeyboardButton(text="Не более 2 тыс. руб", callback_data="Не более 2 тыс. руб")],
+                [InlineKeyboardButton(text="Без затрат", callback_data="Без затрат")],
+                [InlineKeyboardButton(text="Не имеет значения", callback_data="Не имеет значения")]
             ]
         )
-        await callback.message.answer("Какой формат отдыха вам ближе?", reply_markup=keyboard)
-        await state.set_state(TripContext.plan_style)
+        msg_id = data.get("current_message_id")
+        async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
+            await callback.message.bot.edit_message_text(
+                chat_id=callback.message.chat.id,
+                message_id=msg_id,
+                text="*[3 / 3]* На какой бюджет ориентируемся?",
+                parse_mode="Markdown",
+                reply_markup=keyboard
+            )
+        await state.set_state(TripContext.budget)
         await callback.answer()
         return
     if value in selected:
@@ -229,66 +229,82 @@ async def process_interests(callback: types.CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@dp.callback_query(TripContext.plan_style)
-async def budget_question(callback: types.CallbackQuery, state: FSMContext):
-    if callback.data not in PLAN_STYLE_OPTIONS:
-        await callback.answer()
-        return
-    await state.update_data(plan_style=callback.data)
-    context[callback.message.chat.id]["plan_style"] = callback.data
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Более 10 тыс. руб", callback_data="Более 10 тыс. руб")],
-            [InlineKeyboardButton(text="2-10 тыс. руб", callback_data="2-10 тыс. руб")],
-            [InlineKeyboardButton(text="Не более 2 тыс. руб", callback_data="Не более 2 тыс. руб")],
-            [InlineKeyboardButton(text="Без затрат", callback_data="Без затрат")],
-            [InlineKeyboardButton(text="Не имеет значения", callback_data="Не имеет значения")]
-        ]
-    )
-    await callback.message.answer("На какой бюджет ориентируемся?", reply_markup=keyboard)
-    await state.set_state(TripContext.budget)
-    await callback.answer()
 
 @dp.callback_query(TripContext.budget)
 async def budget_question(callback: types.CallbackQuery, state: FSMContext):
+    if callback.data == "stop":
+        async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
+            await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже.")
+        await callback.answer()
+        await state.set_state(RequestForm.waiting_for_request.state)
+        return
     if callback.data not in BUDGET_OPTIONS:
         await callback.answer()
         return
-    await state.update_data(budget=callback.data)
     context[callback.message.chat.id]["budget"] = callback.data
-    await callback.message.answer(
-        "Отлично! Вы ответили на все вопросы. Теперь я могу составить более "
-        "персонализированные рекомендации для вас. Вы в любой момент можете пройти опрос "
-        "заново или сбросить его результаты командой /clear.")
+    async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
+        await callback.message.answer(
+            "Отлично! Вы ответили на все вопросы. Теперь я могу составить более "
+            "персонализированные рекомендации для вас. Вы в любой момент можете пройти опрос "
+            "заново командой /poll или сбросить его результаты командой /clear.",
+            reply_markup=ReplyKeyboardRemove()
+        )
     await state.set_state(RequestForm.waiting_for_request.state)
     await callback.answer()
+
 
 @dp.callback_query(RequestForm.waiting_for_request)
 async def block_in_waiting(callback: types.CallbackQuery):
     await callback.answer()
 
+
 @dp.message(Command("clear"))
-async def cmd_clear(message: Message):
+async def clear(message: Message):
     threads[message.from_user.id] = str(uuid.uuid4())
     context[message.chat.id] = {}
-    await message.answer("Ваша история и ответы на вопросы, если были даны, очищены!")
+    async with ChatActionSender.typing(chat_id=message.chat.id, bot=bot):
+        await message.answer("Ваша история и ответы на вопросы, если были даны, очищены!")
+
+
+@dp.message(Command("poll"))
+async def start_poll(message: Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state in (s.state for s in TripContext):
+        async with ChatActionSender.typing(chat_id=message.chat.id, bot=bot):
+            await message.answer("Вы уже проходите опрос!")
+        return
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Да", callback_data="Да")],
+            [InlineKeyboardButton(text="Нет", callback_data="Нет")],
+            [InlineKeyboardButton(text="⛔ Завершить опрос досрочно", callback_data="stop")],
+        ]
+    )
+    async with ChatActionSender.typing(chat_id=message.chat.id, bot=bot):
+        msg = await message.answer("*[1 / 3]* Есть ли дети в вашей компании?", reply_markup=keyboard,
+                                   parse_mode="Markdown")
+    await state.update_data(current_message_id=msg.message_id)
+    await state.set_state(TripContext.travelers.state)
+
 
 @dp.message(RequestForm.waiting_for_request)
-async def echo(message: Message):
+async def agent_request(message: Message):
     response = requests.post(
         f"{server_url}/chat",
         json={
             "message": message.text,
             "thread_id": threads.get(message.from_user.id),
-            "context": context[message.chat.id]
+            "context": context.get(message.chat.id, {})
         },
         timeout=60.0
     )
     data = response.json()["response"]
     await message.answer(markdown_to_telegram_html(data), parse_mode="HTML")
 
+
 async def main():
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
