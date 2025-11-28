@@ -123,7 +123,7 @@ def markdown_to_telegram_html(text: str) -> str:
 
 @dp.message(Command("start"))
 async def start(message: Message):
-    await message.chat.send_action("typing")
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     context[message.chat.id] = {}
     threads[message.from_user.id] = str(uuid.uuid4())
     keyboard = InlineKeyboardMarkup(
@@ -143,7 +143,7 @@ async def start(message: Message):
 
 @dp.callback_query(F.data == "no")
 async def just_answer(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.chat.send_action("typing")
+    await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
     await callback.message.answer("Хорошо! Напишите интересующий вас вопрос.")
     await state.set_state(RequestForm.waiting_for_request.state)
     await callback.answer()
@@ -151,7 +151,7 @@ async def just_answer(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "yes")
 async def start_questions(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.chat.send_action("typing")
+    await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Да", callback_data="Да")],
@@ -168,7 +168,7 @@ async def start_questions(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(TripContext.travelers)
 async def interests_question(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.chat.send_action("typing")
+    await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
     if callback.data == "stop":
         await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже.")
         await callback.answer()
@@ -195,7 +195,7 @@ async def interests_question(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(TripContext.interests)
 async def process_interests(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.chat.send_action("typing")
+    await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
     allowed = set(INTERESTS) | {"done"}
     if callback.data == "stop":
         await callback.message.answer(
@@ -246,7 +246,7 @@ async def process_interests(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(TripContext.budget)
 async def budget_question(callback: types.CallbackQuery, state: FSMContext):
-    await message.chat.send_action("typing")
+    await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
     if callback.data == "stop":
         await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже.")
         await callback.answer()
@@ -273,7 +273,7 @@ async def block_in_waiting(callback: types.CallbackQuery):
 
 @dp.message(Command("clear"))
 async def clear(message: Message):
-    await message.chat.send_action("typing")
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     threads[message.from_user.id] = str(uuid.uuid4())
     context[message.chat.id] = {}
     await message.answer("Ваша история и ответы на вопросы, если были даны, очищены!")
@@ -281,7 +281,7 @@ async def clear(message: Message):
 
 @dp.message(Command("poll"))
 async def start_poll(message: Message, state: FSMContext):
-    await message.chat.send_action("typing")
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     current_state = await state.get_state()
     if current_state in (s.state for s in TripContext):
         await message.answer("Вы уже проходите опрос!")
@@ -301,7 +301,7 @@ async def start_poll(message: Message, state: FSMContext):
 
 @dp.message(RequestForm.waiting_for_request)
 async def agent_request(message: Message):
-    await message.chat.send_action("typing")
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     chat_id = message.chat.id
     if active_requests.get(chat_id, False):
         await message.answer("⏳ Подожди, я думаю над предыдущим вопросом...")
