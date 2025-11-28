@@ -185,7 +185,7 @@ async def process_interests(callback: types.CallbackQuery, state: FSMContext):
     allowed = set(INTERESTS) | {"done"}
     if callback.data == "stop":
         async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
-            await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже.")
+            await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже с помощью команды /poll.")
         await callback.answer()
         await state.set_state(RequestForm.waiting_for_request.state)
         return
