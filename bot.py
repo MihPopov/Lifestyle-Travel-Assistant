@@ -48,6 +48,9 @@ def interests_keyboard(selected: list[str]):
     buttons.append([
         InlineKeyboardButton(text="💯 Готово", callback_data="done")
     ])
+    buttons.append([
+        InlineKeyboardButton(text="⛔ Завершить опрос досрочно", callback_data="stop")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -141,7 +144,7 @@ async def start_questions(callback: types.CallbackQuery, state: FSMContext):
         inline_keyboard=[
             [InlineKeyboardButton(text="Да", callback_data="Да")],
             [InlineKeyboardButton(text="Нет", callback_data="Нет")],
-            [InlineKeyboardButton(text="⛔ Завершить опрос досрочно", callback_data="stop")],
+            [InlineKeyboardButton(text="⛔ Завершить опрос досрочно", callback_data="stop")]
         ]
     )
     async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
@@ -204,7 +207,8 @@ async def process_interests(callback: types.CallbackQuery, state: FSMContext):
                 [InlineKeyboardButton(text="2-10 тыс. руб", callback_data="2-10 тыс. руб")],
                 [InlineKeyboardButton(text="Не более 2 тыс. руб", callback_data="Не более 2 тыс. руб")],
                 [InlineKeyboardButton(text="Без затрат", callback_data="Без затрат")],
-                [InlineKeyboardButton(text="Не имеет значения", callback_data="Не имеет значения")]
+                [InlineKeyboardButton(text="Не имеет значения", callback_data="Не имеет значения")],
+                [InlineKeyboardButton(text="⛔ Завершить опрос досрочно", callback_data="stop")]
             ]
         )
         msg_id = data.get("current_message_id")
