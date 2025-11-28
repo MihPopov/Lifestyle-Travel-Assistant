@@ -13,11 +13,12 @@ import uuid
 load_dotenv()
 
 TOKEN = os.getenv("BOT_TOKEN")
-server_url = os.getenv("SERVER_URL", "http://localhost:8001")
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 context = {}
 threads = {}
+server_url = os.getenv("SERVER_URL", "http://localhost:8001/v1")
 
 INTERESTS = ["Природа", "Музеи", "Гастрономия", "Шопинг", "Активности и спорт", "Мероприятия/концерты"]
 TRAVELERS_OPTIONS = {"Один", "Пара", "Семья с детьми", "Друзья"}
@@ -106,6 +107,7 @@ def markdown_to_telegram_html(text: str) -> str:
     text = re.sub(r'\n\s*\n', '\n\n', text)
 
     return text.strip()
+
 @dp.message(Command("start"))
 async def start(message: Message):
     context[message.chat.id] = {}
@@ -116,11 +118,13 @@ async def start(message: Message):
             [InlineKeyboardButton(text="Нет, давай сразу к делу", callback_data="no")]
         ]
     )
-    await message.answer(markdown_to_telegram_html("Привет! Я Лайфстайл тревел ассистент. Готов помочь в планировании "
-                                                   "твоего путешествия! Но перед этим хочу задать пару вопросов, "
-                                                   "чтобы составить наиболее качественную рекомендацию. Вы не будете "
-                                                   "против?"),
-                         reply_markup=keyboard, parse_mode="HTML")
+    await message.answer(
+        "Привет! Я умею искать мероприятия, заведения и узнавать погоду. Например, "
+        "я могу найти концерт в Москве, кафе в Адлере или рассказать о погоде в Сочи. "
+        "Но перед этим хочу задать пару вопросов, чтобы составлять наиболее качественные рекомендации. "
+        "Вы не будете против?",
+        reply_markup=keyboard
+    )
 
 @dp.callback_query(F.data == "no")
 async def just_answer(callback: types.CallbackQuery, state: FSMContext):
@@ -252,9 +256,10 @@ async def budget_question(callback: types.CallbackQuery, state: FSMContext):
         return
     await state.update_data(budget=callback.data)
     context[callback.message.chat.id]["budget"] = callback.data
-    await callback.message.answer("Отлично! Вы ответили на все вопросы. Теперь я могу составить более "
-                                  "персонализированные рекомендации для вас. Вы в любой момент можете пройти опрос "
-                                  "заново или сбросить его результаты.")
+    await callback.message.answer(
+        "Отлично! Вы ответили на все вопросы. Теперь я могу составить более "
+        "персонализированные рекомендации для вас. Вы в любой момент можете пройти опрос "
+        "заново или сбросить его результаты командой \clear.")
     await state.set_state(RequestForm.waiting_for_request.state)
     await callback.answer()
 
@@ -264,9 +269,9 @@ async def block_in_waiting(callback: types.CallbackQuery):
 
 @dp.message(Command("clear"))
 async def cmd_clear(message: Message):
-    context[message.chat.id] = {}
     threads[message.from_user.id] = str(uuid.uuid4())
-    await message.answer("История очищена")
+    context[message.chat.id] = {}
+    await message.answer("Ваша история и ответы на вопросы, если были даны, очищены!")
 
 @dp.message(RequestForm.waiting_for_request)
 async def echo(message: Message):
@@ -274,7 +279,8 @@ async def echo(message: Message):
         f"{server_url}/chat",
         json={
             "message": message.text,
-            "thread_id": threads.get(message.from_user.id)
+            "thread_id": threads.get(message.from_user.id),
+            "context": context[message.chat.id]
         },
         timeout=60.0
     )
