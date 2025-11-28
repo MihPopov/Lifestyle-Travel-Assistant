@@ -56,7 +56,7 @@ def interests_keyboard(selected: list[str]):
 def markdown_to_telegram_html(text: str) -> str:
     """
     Конвертирует markdown в HTML для Telegram.
-    Поддерживаемые теги: <b>, <i>, <u>, <s>, <code>, <pre>
+    Поддерживаемые теги: <b>, <i>, <u>, <s>, <code>, <pre>, <a>
     Неподдерживаемое: удаляется
     """
 
@@ -91,8 +91,20 @@ def markdown_to_telegram_html(text: str) -> str:
     # Заголовки (# Header) -> просто текст
     text = re.sub(r'#+\s*(.*)', r'\1', text)
 
-    # Ссылки [text](url) -> text
-    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    # Ссылки [text](url) -> <a href="url">text</a>
+    # Разрешаем только безопасные схемы (http, https, mailto). В противном случае оставляем только текст.
+    def _replace_link(m):
+        link_text = m.group(1)
+        url = m.group(2).strip()
+        if re.match(r'^(https?://|mailto:)', url, flags=re.IGNORECASE):
+            safe_url = (url.replace('&', '&amp;')
+                            .replace('"', '&quot;')
+                            .replace('<', '&lt;')
+                            .replace('>', '&gt;'))
+            return f'<a href="{safe_url}">{link_text}</a>'
+        return link_text
+
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', _replace_link, text)
 
     # Изображения ![alt](url) -> удаляем
     text = re.sub(r'!\[([^\]]*)\]\([^)]+\)', '', text)
