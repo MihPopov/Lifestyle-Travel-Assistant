@@ -188,7 +188,7 @@ async def interests_question(callback: types.CallbackQuery, state: FSMContext):
         return
     await state.update_data(age=callback.data)
     context[callback.message.chat.id]["age"] = callback.data
-    selected = set()
+    selected = []
     await state.update_data(selected_interests=selected)
     await callback.message.answer(
         "Что вам ближе? Можно выбрать несколько или не выбирать ничего:",
