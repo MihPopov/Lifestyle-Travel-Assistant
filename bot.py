@@ -143,6 +143,14 @@ async def start(message: Message):
 
 @dp.callback_query(F.data == "no")
 async def just_answer(callback: types.CallbackQuery, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state in (s.state for s in TripContext):
+        await callback.message.answer("Сначала завершите опрос!")
+        await callback.answer()
+        return
+    if current_state == RequestForm.waiting_for_request.state:
+        await callback.answer()
+        return
     await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
     await callback.message.answer("Хорошо! Напишите интересующий вас вопрос.")
     await state.set_state(RequestForm.waiting_for_request.state)
@@ -272,8 +280,12 @@ async def block_in_waiting(callback: types.CallbackQuery):
 
 
 @dp.message(Command("clear"))
-async def clear(message: Message):
+async def clear(message: Message, state: FSMContext):
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    current_state = await state.get_state()
+    if current_state in (s.state for s in TripContext):
+        await message.answer("Сначала завершите опрос!")
+        return
     threads[message.from_user.id] = str(uuid.uuid4())
     context[message.chat.id] = {}
     await message.answer("Ваша история и ответы на вопросы, если были даны, очищены!")
