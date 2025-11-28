@@ -4,12 +4,10 @@ from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, R
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.utils.chat_action import ChatActionSender
-from aiogram.utils.keyboard import ReplyKeyboardMarkup, KeyboardButton
 from dotenv import load_dotenv
 import os
 import re
-import requests
+import httpx
 import uuid
 
 load_dotenv()
@@ -20,7 +18,8 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 context = {}
 threads = {}
-server_url = os.getenv("SERVER_URL", "http://localhost:8001/v1")
+active_requests = {}
+server_url = os.getenv("SERVER_URL", "http://localhost:8001")
 
 INTERESTS = ["Природа", "Музеи", "Гастрономия", "Шопинг", "Активности и спорт", "Мероприятия/концерты"]
 TRAVELERS_OPTIONS = {"Да", "Нет"}
@@ -57,7 +56,7 @@ def interests_keyboard(selected: list[str]):
 def markdown_to_telegram_html(text: str) -> str:
     """
     Конвертирует markdown в HTML для Telegram.
-    Поддерживаемые теги: <b>, <i>, <u>, <s>, <code>, <pre>
+    Поддерживаемые теги: <b>, <i>, <u>, <s>, <code>, <pre>, <a>
     Неподдерживаемое: удаляется
     """
 
@@ -92,8 +91,20 @@ def markdown_to_telegram_html(text: str) -> str:
     # Заголовки (# Header) -> просто текст
     text = re.sub(r'#+\s*(.*)', r'\1', text)
 
-    # Ссылки [text](url) -> text
-    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    # Ссылки [text](url) -> <a href="url">text</a>
+    # Разрешаем только безопасные схемы (http, https, mailto). В противном случае оставляем только текст.
+    def _replace_link(m):
+        link_text = m.group(1)
+        url = m.group(2).strip()
+        if re.match(r'^(https?://|mailto:)', url, flags=re.IGNORECASE):
+            safe_url = (url.replace('&', '&amp;')
+                        .replace('"', '&quot;')
+                        .replace('<', '&lt;')
+                        .replace('>', '&gt;'))
+            return f'<a href="{safe_url}">{link_text}</a>'
+        return link_text
+
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', _replace_link, text)
 
     # Изображения ![alt](url) -> удаляем
     text = re.sub(r'!\[([^\]]*)\]\([^)]+\)', '', text)
@@ -112,6 +123,7 @@ def markdown_to_telegram_html(text: str) -> str:
 
 @dp.message(Command("start"))
 async def start(message: Message):
+    await message.chat.send_action("typing")
     context[message.chat.id] = {}
     threads[message.from_user.id] = str(uuid.uuid4())
     keyboard = InlineKeyboardMarkup(
@@ -120,26 +132,26 @@ async def start(message: Message):
             [InlineKeyboardButton(text="Нет, давай сразу к делу", callback_data="no")]
         ]
     )
-    async with ChatActionSender.typing(chat_id=message.chat.id, bot=bot):
-        await message.answer(
-            "Привет! Я умею искать мероприятия, заведения и узнавать погоду. Например, "
-            "я могу найти концерт в Москве, кафе в Адлере или рассказать о погоде в Сочи. "
-            "Но перед этим хочу задать пару вопросов, чтобы составлять наиболее качественные рекомендации. "
-            "Вы не будете против?",
-            reply_markup=keyboard
-        )
+    await message.answer(
+        "Привет! Я умею искать мероприятия, заведения и узнавать погоду. Например, "
+        "я могу найти концерт в Москве, кафе в Адлере или рассказать о погоде в Сочи. "
+        "Но перед этим хочу задать пару вопросов, чтобы составлять наиболее качественные рекомендации. "
+        "Вы не будете против?",
+        reply_markup=keyboard
+    )
 
 
 @dp.callback_query(F.data == "no")
 async def just_answer(callback: types.CallbackQuery, state: FSMContext):
-    async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
-        await callback.message.answer("Хорошо! Напишите интересующий вас вопрос.")
+    await callback.message.chat.send_action("typing")
+    await callback.message.answer("Хорошо! Напишите интересующий вас вопрос.")
     await state.set_state(RequestForm.waiting_for_request.state)
     await callback.answer()
 
 
 @dp.callback_query(F.data == "yes")
 async def start_questions(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.chat.send_action("typing")
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Да", callback_data="Да")],
@@ -147,9 +159,8 @@ async def start_questions(callback: types.CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="⛔ Завершить опрос досрочно", callback_data="stop")]
         ]
     )
-    async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
-        msg = await callback.message.answer("*[1 / 3]* Есть ли дети в вашей компании?", reply_markup=keyboard,
-                                   parse_mode="Markdown")
+    msg = await callback.message.answer("*[1 / 3]* Есть ли дети в вашей компании?", reply_markup=keyboard,
+                                        parse_mode="Markdown")
     await state.set_state(TripContext.travelers.state)
     await state.update_data(current_message_id=msg.message_id)
     await callback.answer()
@@ -157,9 +168,9 @@ async def start_questions(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(TripContext.travelers)
 async def interests_question(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.chat.send_action("typing")
     if callback.data == "stop":
-        async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
-            await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже.")
+        await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже.")
         await callback.answer()
         await state.set_state(RequestForm.waiting_for_request.state)
         return
@@ -171,24 +182,24 @@ async def interests_question(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(selected_interests=selected)
     data = await state.get_data()
     msg_id = data.get("current_message_id")
-    async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
-        await callback.message.bot.edit_message_text(
-            chat_id=callback.message.chat.id,
-            message_id=msg_id,
-            text="*[2 / 3]* Что вам ближе? Можно выбрать несколько или не выбирать ничего:",
-            parse_mode="Markdown",
-            reply_markup=interests_keyboard(selected)
-        )
+    await callback.message.bot.edit_message_text(
+        chat_id=callback.message.chat.id,
+        message_id=msg_id,
+        text="*[2 / 3]* Что вам ближе? Можно выбрать несколько или не выбирать ничего:",
+        parse_mode="Markdown",
+        reply_markup=interests_keyboard(selected)
+    )
     await state.set_state(TripContext.interests)
     await callback.answer()
 
 
 @dp.callback_query(TripContext.interests)
 async def process_interests(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.chat.send_action("typing")
     allowed = set(INTERESTS) | {"done"}
     if callback.data == "stop":
-        async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
-            await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже с помощью команды /poll.")
+        await callback.message.answer(
+            "Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже с помощью команды /poll.")
         await callback.answer()
         await state.set_state(RequestForm.waiting_for_request.state)
         return
@@ -212,14 +223,13 @@ async def process_interests(callback: types.CallbackQuery, state: FSMContext):
             ]
         )
         msg_id = data.get("current_message_id")
-        async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
-            await callback.message.bot.edit_message_text(
-                chat_id=callback.message.chat.id,
-                message_id=msg_id,
-                text="*[3 / 3]* На какой бюджет ориентируемся?",
-                parse_mode="Markdown",
-                reply_markup=keyboard
-            )
+        await callback.message.bot.edit_message_text(
+            chat_id=callback.message.chat.id,
+            message_id=msg_id,
+            text="*[3 / 3]* На какой бюджет ориентируемся?",
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
         await state.set_state(TripContext.budget)
         await callback.answer()
         return
@@ -236,9 +246,9 @@ async def process_interests(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(TripContext.budget)
 async def budget_question(callback: types.CallbackQuery, state: FSMContext):
+    await message.chat.send_action("typing")
     if callback.data == "stop":
-        async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
-            await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже.")
+        await callback.message.answer("Принято! Можете задавать вопросы сейчас. Опрос можно будет пройти позже.")
         await callback.answer()
         await state.set_state(RequestForm.waiting_for_request.state)
         return
@@ -246,13 +256,12 @@ async def budget_question(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     context[callback.message.chat.id]["budget"] = callback.data
-    async with ChatActionSender.typing(chat_id=callback.message.chat.id, bot=bot):
-        await callback.message.answer(
-            "Отлично! Вы ответили на все вопросы. Теперь я могу составить более "
-            "персонализированные рекомендации для вас. Вы в любой момент можете пройти опрос "
-            "заново командой /poll или сбросить его результаты командой /clear.",
-            reply_markup=ReplyKeyboardRemove()
-        )
+    await callback.message.answer(
+        "Отлично! Вы ответили на все вопросы. Теперь я могу составить более "
+        "персонализированные рекомендации для вас. Вы в любой момент можете пройти опрос "
+        "заново командой /poll или сбросить его результаты командой /clear.",
+        reply_markup=ReplyKeyboardRemove()
+    )
     await state.set_state(RequestForm.waiting_for_request.state)
     await callback.answer()
 
@@ -264,18 +273,18 @@ async def block_in_waiting(callback: types.CallbackQuery):
 
 @dp.message(Command("clear"))
 async def clear(message: Message):
+    await message.chat.send_action("typing")
     threads[message.from_user.id] = str(uuid.uuid4())
     context[message.chat.id] = {}
-    async with ChatActionSender.typing(chat_id=message.chat.id, bot=bot):
-        await message.answer("Ваша история и ответы на вопросы, если были даны, очищены!")
+    await message.answer("Ваша история и ответы на вопросы, если были даны, очищены!")
 
 
 @dp.message(Command("poll"))
 async def start_poll(message: Message, state: FSMContext):
+    await message.chat.send_action("typing")
     current_state = await state.get_state()
     if current_state in (s.state for s in TripContext):
-        async with ChatActionSender.typing(chat_id=message.chat.id, bot=bot):
-            await message.answer("Вы уже проходите опрос!")
+        await message.answer("Вы уже проходите опрос!")
         return
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -284,26 +293,42 @@ async def start_poll(message: Message, state: FSMContext):
             [InlineKeyboardButton(text="⛔ Завершить опрос досрочно", callback_data="stop")],
         ]
     )
-    async with ChatActionSender.typing(chat_id=message.chat.id, bot=bot):
-        msg = await message.answer("*[1 / 3]* Есть ли дети в вашей компании?", reply_markup=keyboard,
-                                   parse_mode="Markdown")
+    msg = await message.answer("*[1 / 3]* Есть ли дети в вашей компании?", reply_markup=keyboard,
+                               parse_mode="Markdown")
     await state.update_data(current_message_id=msg.message_id)
     await state.set_state(TripContext.travelers.state)
 
 
 @dp.message(RequestForm.waiting_for_request)
 async def agent_request(message: Message):
-    response = requests.post(
-        f"{server_url}/chat",
-        json={
-            "message": message.text,
-            "thread_id": threads.get(message.from_user.id),
-            "context": context.get(message.chat.id, {})
-        },
-        timeout=60.0
-    )
-    data = response.json()["response"]
-    await message.answer(markdown_to_telegram_html(data), parse_mode="HTML")
+    await message.chat.send_action("typing")
+    chat_id = message.chat.id
+    if active_requests.get(chat_id, False):
+        await message.answer("⏳ Подожди, я думаю над предыдущим вопросом...")
+        return
+    active_requests[chat_id] = True
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            try:
+                response = await client.post(
+                    f"{server_url}/chat",
+                    json={
+                        "message": message.text,
+                        "thread_id": threads.get(message.from_user.id),
+                        "context": context.get(message.chat.id, {})
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()["response"]
+                await message.answer(markdown_to_telegram_html(data), parse_mode="HTML")
+            except httpx.TimeoutException:
+                await message.answer("Извините, запрос занял слишком много времени. Попробуйте еще раз.")
+            except httpx.HTTPStatusError as e:
+                await message.answer(f"Произошла ошибка при обработке запроса. Попробуйте еще раз позже.")
+            except Exception as e:
+                await message.answer("Произошла непредвиденная ошибка. Попробуйте еще раз позже.")
+    finally:
+        active_requests[chat_id] = False
 
 
 async def main():

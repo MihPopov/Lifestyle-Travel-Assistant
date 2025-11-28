@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4cedbec3-71eb-4b09-96df-da4977fcafcb" name="Changes" comment="">
+    <list default="true" id="4cedbec3-71eb-4b09-96df-da4977fcafcb" name="Changes" comment="Revert &quot;minor&quot;&#10;&#10;This reverts commit bc0a4f07">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot.py" afterDir="false" />
     </list>
@@ -104,5 +104,9 @@
         </entry>
       </map>
     </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Revert &quot;minor&quot;&#10;&#10;This reverts commit bc0a4f07" />
+    <option name="LAST_COMMIT_MESSAGE" value="Revert &quot;minor&quot;&#10;&#10;This reverts commit bc0a4f07" />
   </component>
 </project>
