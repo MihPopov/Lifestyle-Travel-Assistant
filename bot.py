@@ -20,6 +20,7 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 context = {}
 threads = {}
+active_requests = {}  # Отслеживание активных запросов по chat_id
 server_url = os.getenv("SERVER_URL", "http://localhost:8001")
 
 INTERESTS = ["Природа", "Музеи", "Гастрономия", "Шопинг", "Активности и спорт", "Мероприятия/концерты"]
@@ -305,25 +306,39 @@ async def start_poll(message: Message, state: FSMContext):
 
 @dp.message(RequestForm.waiting_for_request)
 async def agent_request(message: Message):
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        try:
-            response = await client.post(
-                f"{server_url}/chat",
-                json={
-                    "message": message.text,
-                    "thread_id": threads.get(message.from_user.id),
-                    "context": context.get(message.chat.id, {})
-                }
-            )
-            response.raise_for_status()
-            data = response.json()["response"]
-            await message.answer(markdown_to_telegram_html(data), parse_mode="HTML")
-        except httpx.TimeoutException:
-            await message.answer("Извините, запрос занял слишком много времени. Попробуйте еще раз.")
-        except httpx.HTTPStatusError as e:
-            await message.answer(f"Произошла ошибка при обработке запроса. Попробуйте еще раз позже.")
-        except Exception as e:
-            await message.answer("Произошла непредвиденная ошибка. Попробуйте еще раз позже.")
+    chat_id = message.chat.id
+    
+    # Проверяем, есть ли уже активный запрос для этого пользователя
+    if active_requests.get(chat_id, False):
+        await message.answer("⏳ Подожди, я думаю над предыдущим вопросом...")
+        return
+    
+    # Устанавливаем флаг активного запроса
+    active_requests[chat_id] = True
+    
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            try:
+                response = await client.post(
+                    f"{server_url}/chat",
+                    json={
+                        "message": message.text,
+                        "thread_id": threads.get(message.from_user.id),
+                        "context": context.get(message.chat.id, {})
+                    }
+                )
+                response.raise_for_status()
+                data = response.json()["response"]
+                await message.answer(markdown_to_telegram_html(data), parse_mode="HTML")
+            except httpx.TimeoutException:
+                await message.answer("Извините, запрос занял слишком много времени. Попробуйте еще раз.")
+            except httpx.HTTPStatusError as e:
+                await message.answer(f"Произошла ошибка при обработке запроса. Попробуйте еще раз позже.")
+            except Exception as e:
+                await message.answer("Произошла непредвиденная ошибка. Попробуйте еще раз позже.")
+    finally:
+        # Снимаем флаг активного запроса после завершения
+        active_requests[chat_id] = False
 
 
 async def main():
