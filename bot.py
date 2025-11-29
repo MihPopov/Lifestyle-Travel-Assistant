@@ -122,8 +122,9 @@ def markdown_to_telegram_html(text: str) -> str:
 
 
 @dp.message(Command("start"))
-async def start(message: Message):
+async def start(message: Message, state: FSMContext):
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    await state.clear()
     context[message.chat.id] = {}
     threads[message.from_user.id] = str(uuid.uuid4())
     keyboard = InlineKeyboardMarkup(
@@ -159,7 +160,12 @@ async def just_answer(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "yes")
 async def start_questions(callback: types.CallbackQuery, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state in (s.state for s in TripContext):
+        await callback.answer()
+        return
     await bot.send_chat_action(chat_id=callback.message.chat.id, action="typing")
+    await state.set_state(TripContext.travelers.state)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Да", callback_data="Да")],
@@ -169,7 +175,6 @@ async def start_questions(callback: types.CallbackQuery, state: FSMContext):
     )
     msg = await callback.message.answer("*[1 / 3]* Есть ли дети в вашей компании?", reply_markup=keyboard,
                                         parse_mode="Markdown")
-    await state.set_state(TripContext.travelers.state)
     await state.update_data(current_message_id=msg.message_id)
     await callback.answer()
 
@@ -275,8 +280,11 @@ async def budget_question(callback: types.CallbackQuery, state: FSMContext):
 
 
 @dp.callback_query(RequestForm.waiting_for_request)
-async def block_in_waiting(callback: types.CallbackQuery):
-    await callback.answer()
+async def block_in_waiting(callback: types.CallbackQuery, state: FSMContext):
+    current = await state.get_state()
+    if current is None or current == RequestForm.waiting_for_request.state:
+        await callback.answer()
+        return
 
 
 @dp.message(Command("clear"))
