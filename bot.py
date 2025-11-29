@@ -272,7 +272,8 @@ async def budget_question(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "Отлично! Вы ответили на все вопросы. Теперь я могу составить более "
         "персонализированные рекомендации для вас. Вы в любой момент можете пройти опрос "
-        "заново командой /poll или сбросить его результаты командой /clear.",
+        "заново командой /poll или сбросить его результаты командой /clear. Можете задавать мне свои вопросы, "
+        "я с радостью на них отвечу.",
         reply_markup=ReplyKeyboardRemove()
     )
     await state.set_state(RequestForm.waiting_for_request.state)
